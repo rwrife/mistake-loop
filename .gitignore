@@ -15,8 +15,8 @@ build/
 /build/
 
 ### Android ###
-**/android/**/gradle*
 **/android/**/local.properties
+**/android/.gradle/
 **/android/**/GeneratedPluginRegistrant.java
 **/android/**/*.apk
 **/android/**/*.aab
@@ -43,8 +43,10 @@ x86/
 .AppleDouble
 .LSOverride
 
-### General test & cache ###
-*.log
+*.iml
 .idea/
+.metadata
+
+*.log
 *.swp
 *~
