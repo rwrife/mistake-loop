@@ -1,0 +1,50 @@
+# Created by https://www.toptal.com/developers/gitignore/api/flutter,dart,windows,android,macos,visualstudiocode
+# Edit at https://www.toptal.com/developers/gitignore?templates=flutter,dart,windows,android,macos,visualstudiocode
+
+### Dart ###
+.dart_tool/
+.packages
+build/
+
+### Flutter ###
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+/build/
+
+### Android ###
+**/android/**/gradle*
+**/android/**/local.properties
+**/android/**/GeneratedPluginRegistrant.java
+**/android/**/*.apk
+**/android/**/*.aab
+
+### Windows ###
+**/windows/**/flutter/ephemeral/
+**/windows/**/GeneratedPluginRegistrant.h
+**/windows/**/GeneratedPluginRegistrant.cc
+**/windows/**/CMakeLists.txt.user
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+
+### VisualStudioCode ###
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+### macOS ###
+.DS_Store
+.AppleDouble
+.LSOverride
+
+### General test & cache ###
+*.log
+.idea/
+*.swp
+*~
