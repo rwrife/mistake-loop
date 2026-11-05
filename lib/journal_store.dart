@@ -1,8 +1,18 @@
 import 'dart:io';
 
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'mistake_journal.dart';
+
+/// Keep database inside OS-managed application support, not working directory.
+Future<JournalStore> openPrivateJournal({Directory? directory}) async {
+  final root = directory ?? await getApplicationSupportDirectory();
+  await root.create(recursive: true);
+  return JournalStore.open(
+    '${root.path}${Platform.pathSeparator}journal.sqlite',
+  );
+}
 
 /// Private, transactional SQLite storage. Caller supplies app-private path.
 class JournalStore {
