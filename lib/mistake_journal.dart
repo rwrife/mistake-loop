@@ -96,6 +96,26 @@ class Mistake {
   final DateTime createdAt;
   final List<JournalEvent> events;
 
+  /// Change entry details without discarding revisit history.
+  Mistake edit({
+    required String subjectId,
+    required String sourceLocator,
+    required String wrongAnswer,
+    required String correctedAnswer,
+    required Iterable<String> causes,
+    String? prompt,
+  }) => Mistake._(
+    id: id,
+    subjectId: _required(subjectId, 'subjectId'),
+    sourceLocator: _required(sourceLocator, 'sourceLocator'),
+    wrongAnswer: _required(wrongAnswer, 'wrongAnswer'),
+    correctedAnswer: _required(correctedAnswer, 'correctedAnswer'),
+    prompt: prompt == null ? null : _required(prompt, 'prompt'),
+    causes: _causes(causes),
+    createdAt: createdAt,
+    events: events,
+  );
+
   bool get resolved =>
       events.isNotEmpty &&
       events.last.kind == JournalEventKind.successfulRevisit;
