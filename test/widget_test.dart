@@ -1,10 +1,27 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mistake_loop/journal_portability.dart';
 import 'package:mistake_loop/journal_store.dart';
 import 'package:mistake_loop/main.dart';
 import 'package:mistake_loop/mistake_journal.dart';
+
+final class FakeBackupFile extends PlatformFile {
+  FakeBackupFile(this.data);
+  final Uint8List data;
+  @override
+  String get name => 'backup.json';
+  @override
+  Future<Uint8List> readAsBytes() async => data;
+  @override
+  Future<int?> length() async => data.length;
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 void main() {
   testWidgets('empty shell and loaded summary', (tester) async {
@@ -88,6 +105,88 @@ void main() {
     await tester.tap(find.text('Reopen'));
     await tester.pumpAndSettle();
     expect(saved.unresolved.single.events.length, 2);
+  });
+
+  testWidgets('export warns of sharing and import previews before replacing', (
+    tester,
+  ) async {
+    var saved = MistakeJournal(
+      subjects: [Subject(id: 's1', name: 'Science')],
+      mistakes: [
+        Mistake(
+          id: 'm1',
+          subjectId: 's1',
+          sourceLocator: 'Lab 3',
+          wrongAnswer: 'cold',
+          correctedAnswer: 'hot',
+          causes: ['misread'],
+          createdAt: DateTime.utc(2026, 1, 1),
+        ),
+      ],
+    );
+    String? exportedName;
+    List<int>? exportedBytes;
+    PlatformFile? picked;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MistakeLoopHome(
+          journal: saved,
+          onSave: (next) async => saved = next,
+          saveFile: (name, mime, bytes) async {
+            exportedName = name;
+            exportedBytes = bytes;
+            return Uri.parse('file:///tmp/$name');
+          },
+          pickBackup: () async => picked,
+        ),
+      ),
+    );
+    // Export warning and cancellation
+    await tester.tap(find.text('Export JSON backup'));
+    await tester.pumpAndSettle();
+    expect(find.text('Export private data?'), findsOneWidget);
+    expect(find.textContaining('wrong answers, corrections'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(exportedBytes, isNull);
+
+    // Export confirms and writes
+    await tester.tap(find.text('Export JSON backup'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Choose destination'));
+    await tester.pumpAndSettle();
+    expect(exportedName, 'mistake-loop-backup.json');
+    expect(exportedBytes, isNotNull);
+
+    // Invalid import fails closed and keeps current data
+    picked = FakeBackupFile(Uint8List.fromList(utf8.encode('{"version":99}')));
+    await tester.tap(find.text('Import JSON backup'));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('Import failed; journal unchanged'),
+      findsOneWidget,
+    );
+    expect(saved.subjects.single.name, 'Science');
+
+    // Valid import previews counts and replaces on confirmation
+    final replacementBytes = JournalPortability.backup(
+      MistakeJournal(
+        subjects: [Subject(id: 'hist', name: 'History')],
+        mistakes: [],
+      ),
+    );
+    picked = FakeBackupFile(replacementBytes);
+    await tester.tap(find.text('Import JSON backup'));
+    await tester.pumpAndSettle();
+    expect(find.text('Replace private journal?'), findsOneWidget);
+    expect(
+      find.textContaining('Backup preview: 1 subjects, 0 mistakes'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Replace journal'));
+    await tester.pumpAndSettle();
+    expect(saved.subjects.single.name, 'History');
+    expect(saved.mistakes, isEmpty);
   });
 
   test('private store survives reopen in application directory', () async {
