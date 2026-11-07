@@ -1,6 +1,8 @@
 import 'dart:math';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:mistake_loop/journal_portability.dart';
 import 'package:mistake_loop/journal_store.dart';
 import 'package:mistake_loop/mistake_journal.dart';
 
@@ -70,11 +72,15 @@ class MistakeLoopHome extends StatefulWidget {
     this.error,
     this.journal,
     this.onSave,
+    this.pickBackup,
+    this.saveFile,
   });
   final bool loading;
   final Object? error;
   final MistakeJournal? journal;
   final Future<void> Function(MistakeJournal)? onSave;
+  final Future<PlatformFile?> Function()? pickBackup;
+  final Future<Uri?> Function(String, String, List<int>)? saveFile;
 
   @override
   State<MistakeLoopHome> createState() => _MistakeLoopHomeState();
@@ -131,6 +137,112 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
     final result = await Navigator.of(context, rootNavigator: true).push(route);
     await route.completed; // TextFields unmount after reverse animation.
     return result;
+  }
+
+  Future<bool> _confirm(String title, String detail, String action) async =>
+      await _dialog<bool>(
+        builder: (dialog) => AlertDialog(
+          title: Text(title),
+          content: Text(detail),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialog, true),
+              child: Text(action),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+
+  void _notice(String message) {
+    if (mounted) {
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.clearSnackBars();
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  Future<void> _export({required bool csv}) async {
+    final journal = _journal;
+    if (journal == null || _saving) return;
+    if (!await _confirm(
+      'Export private data?',
+      csv
+          ? 'Summary includes subject names, source locators and causes. The chosen destination may share these details outside this device.'
+          : 'Backup includes wrong answers, corrections and revisit history. The chosen destination may share these details outside this device.',
+      'Choose destination',
+    )) {
+      return;
+    }
+    try {
+      final bytes = csv
+          ? JournalPortability.csv(journal)
+          : JournalPortability.backup(journal);
+      final name = csv
+          ? 'mistake-loop-summary.csv'
+          : 'mistake-loop-backup.json';
+      final uri =
+          await (widget.saveFile?.call(
+                name,
+                csv ? 'text/csv' : 'application/json',
+                bytes,
+              ) ??
+              FilePicker.saveFile(
+                fileName: name,
+                bytes: bytes,
+                mimeType: csv ? 'text/csv' : 'application/json',
+              ));
+      if (uri != null) _notice('Saved $name to chosen destination');
+    } catch (error) {
+      _notice('Export failed: $error');
+    }
+  }
+
+  Future<void> _import() async {
+    if (_saving || _journal == null) return;
+    try {
+      final file =
+          await (widget.pickBackup?.call() ??
+              FilePicker.pickFile(
+                type: FileType.custom,
+                allowedExtensions: ['json'],
+              ));
+      if (file == null) return;
+      if ((await file.length() ?? 0) > JournalPortability.maxBytes) {
+        throw const FormatException('Backup too large');
+      }
+      final bytes = await file.readAsBytes();
+      if (bytes.length > JournalPortability.maxBytes) {
+        throw const FormatException('Backup too large');
+      }
+      final replacement = JournalPortability.restore(bytes);
+      if (!mounted) return;
+      final current = _journal!;
+      if (!await _confirm(
+        'Replace private journal?',
+        'Backup preview: ${replacement.subjects.length} subjects, ${replacement.mistakes.length} mistakes, ${replacement.unresolved.length} unresolved. Current journal: ${current.subjects.length} subjects, ${current.mistakes.length} mistakes. Import replaces all current data. Export a backup first if needed.',
+        'Replace journal',
+      )) {
+        return;
+      }
+      if (!mounted || !identical(current, _journal)) {
+        _notice('Journal changed during import; retry to review current data.');
+        return;
+      }
+      if (await _save(replacement) && mounted) {
+        setState(() {
+          _subjectId = null;
+          _resolved = false;
+        });
+        _notice('Backup restored');
+      }
+    } catch (error) {
+      _notice('Import failed; journal unchanged: $error');
+    }
   }
 
   Future<void> _newSubject() async {
@@ -546,6 +658,18 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
                           ? null
                           : () => _edit(),
                       child: const Text('Record mistake'),
+                    ),
+                    OutlinedButton(
+                      onPressed: _saving ? null : () => _export(csv: false),
+                      child: const Text('Export JSON backup'),
+                    ),
+                    OutlinedButton(
+                      onPressed: _saving ? null : () => _export(csv: true),
+                      child: const Text('Export CSV summary'),
+                    ),
+                    OutlinedButton(
+                      onPressed: _saving ? null : _import,
+                      child: const Text('Import JSON backup'),
                     ),
                   ],
                 ),
