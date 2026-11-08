@@ -1,7 +1,11 @@
 import 'dart:math';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' as cupertino;
+import 'package:fluent_ui/fluent_ui.dart' as fluent;
+import 'package:flutter/material.dart' as material;
+import 'package:flutter/widgets.dart';
+import 'package:mistake_loop/adaptive.dart';
 import 'package:mistake_loop/journal_portability.dart';
 import 'package:mistake_loop/journal_store.dart';
 import 'package:mistake_loop/mistake_journal.dart';
@@ -51,11 +55,7 @@ class _MistakeLoopAppState extends State<MistakeLoopApp> {
   }
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'Mistake Loop',
-    theme: ThemeData(
-      colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
-    ),
+  Widget build(BuildContext context) => AdaptiveApp(
     home: MistakeLoopHome(
       loading: _journal == null && _error == null,
       error: _error,
@@ -91,6 +91,7 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
   String? _subjectId;
   bool _resolved = false;
   bool _saving = false;
+  String? _message;
 
   @override
   void initState() {
@@ -123,8 +124,7 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
       return true;
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Save failed: $error')));
+        _notice('Save failed: $error');
       }
       return false;
     } finally {
@@ -133,7 +133,15 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
   }
 
   Future<T?> _dialog<T>({required WidgetBuilder builder}) async {
-    final route = DialogRoute<T>(context: context, builder: builder);
+    final route = ios
+        ? cupertino.CupertinoDialogRoute<T>(context: context, builder: builder)
+        : windows
+        ? RawDialogRoute<T>(
+            barrierDismissible: true,
+            barrierColor: const Color(0x80000000),
+            pageBuilder: (context, _, _) => Center(child: builder(context)),
+          )
+        : material.DialogRoute<T>(context: context, builder: builder);
     final result = await Navigator.of(context, rootNavigator: true).push(route);
     await route.completed; // TextFields unmount after reverse animation.
     return result;
@@ -141,17 +149,18 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
 
   Future<bool> _confirm(String title, String detail, String action) async =>
       await _dialog<bool>(
-        builder: (dialog) => AlertDialog(
-          title: Text(title),
+        builder: (dialog) => AdaptiveDialog(
+          title: title,
           content: Text(detail),
           actions: [
-            TextButton(
+            AdaptiveButton(
               onPressed: () => Navigator.pop(dialog, false),
-              child: const Text('Cancel'),
+              label: 'Cancel',
             ),
-            FilledButton(
+            AdaptiveButton(
+              primary: true,
               onPressed: () => Navigator.pop(dialog, true),
-              child: Text(action),
+              label: action,
             ),
           ],
         ),
@@ -159,10 +168,13 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
       false;
 
   void _notice(String message) {
-    if (mounted) {
-      final messenger = ScaffoldMessenger.of(context);
+    if (!mounted) return;
+    if (ios || windows) {
+      setState(() => _message = message);
+    } else {
+      final messenger = material.ScaffoldMessenger.of(context);
       messenger.clearSnackBars();
-      messenger.showSnackBar(SnackBar(content: Text(message)));
+      messenger.showSnackBar(material.SnackBar(content: Text(message)));
     }
   }
 
@@ -249,23 +261,24 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
     final name = TextEditingController();
     try {
       final accepted = await _dialog<bool>(
-        builder: (dialog) => AlertDialog(
-          title: const Text('New subject'),
-          content: TextField(
+        builder: (dialog) => AdaptiveDialog(
+          title: 'New subject',
+          content: AdaptiveField(
             key: const Key('subject-name'),
             controller: name,
-            decoration: const InputDecoration(labelText: 'Subject name'),
+            label: 'Subject name',
           ),
           actions: [
-            TextButton(
+            AdaptiveButton(
               onPressed: () => Navigator.pop(dialog),
-              child: const Text('Cancel'),
+              label: 'Cancel',
             ),
-            FilledButton(
+            AdaptiveButton(
+              primary: true,
               onPressed: () {
                 if (name.text.trim().isNotEmpty) Navigator.pop(dialog, true);
               },
-              child: const Text('Save subject'),
+              label: 'Save subject',
             ),
           ],
         ),
@@ -301,8 +314,8 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
     try {
       await _dialog<void>(
         builder: (dialog) => StatefulBuilder(
-          builder: (context, update) => AlertDialog(
-            title: Text(original == null ? 'Record mistake' : 'Edit mistake'),
+          builder: (context, update) => AdaptiveDialog(
+            title: original == null ? 'Record mistake' : 'Edit mistake',
             content: SizedBox(
               width: 440,
               child: SingleChildScrollView(
@@ -311,55 +324,63 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      DropdownButtonFormField<String>(
-                        key: const Key('mistake-subject'),
-                        initialValue: subjectId,
-                        decoration: const InputDecoration(labelText: 'Subject'),
-                        items: [
-                          for (final s in journal.subjects)
-                            DropdownMenuItem(value: s.id, child: Text(s.name)),
-                        ],
-                        onChanged: (id) {
-                          if (id != null) update(() => subjectId = id);
-                        },
-                      ),
-                      TextFormField(
+                      if (ios || windows)
+                        Wrap(
+                          spacing: 8,
+                          children: [
+                            for (final s in journal.subjects)
+                              AdaptiveFilter(
+                                label: s.name,
+                                selected: subjectId == s.id,
+                                onPressed: () => update(() => subjectId = s.id),
+                              ),
+                          ],
+                        )
+                      else
+                        material.DropdownButtonFormField<String>(
+                          key: const Key('mistake-subject'),
+                          initialValue: subjectId,
+                          decoration: const material.InputDecoration(
+                            labelText: 'Subject',
+                          ),
+                          items: [
+                            for (final s in journal.subjects)
+                              material.DropdownMenuItem(
+                                value: s.id,
+                                child: Text(s.name),
+                              ),
+                          ],
+                          onChanged: (id) {
+                            if (id != null) update(() => subjectId = id);
+                          },
+                        ),
+                      AdaptiveField(
                         key: const Key('source-locator'),
                         controller: source,
-                        decoration: const InputDecoration(
-                          labelText: 'Source locator',
-                        ),
+                        label: 'Source locator',
                         validator: requiredText,
                       ),
-                      TextFormField(
+                      AdaptiveField(
                         key: const Key('optional-prompt'),
                         controller: prompt,
-                        decoration: const InputDecoration(
-                          labelText: 'Your prompt (optional)',
-                        ),
+                        label: 'Your prompt (optional)',
                       ),
-                      TextFormField(
+                      AdaptiveField(
                         key: const Key('wrong-answer'),
                         controller: wrong,
-                        decoration: const InputDecoration(
-                          labelText: 'Your wrong answer',
-                        ),
+                        label: 'Your wrong answer',
                         validator: requiredText,
                       ),
-                      TextFormField(
+                      AdaptiveField(
                         key: const Key('corrected-answer'),
                         controller: correct,
-                        decoration: const InputDecoration(
-                          labelText: 'Corrected answer',
-                        ),
+                        label: 'Corrected answer',
                         validator: requiredText,
                       ),
-                      TextFormField(
+                      AdaptiveField(
                         key: const Key('cause-tags'),
                         controller: cause,
-                        decoration: const InputDecoration(
-                          labelText: 'Error causes (comma-separated)',
-                        ),
+                        label: 'Error causes (comma-separated)',
                         validator: (value) {
                           final tags = (value ?? '')
                               .split(',')
@@ -382,11 +403,12 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
               ),
             ),
             actions: [
-              TextButton(
+              AdaptiveButton(
                 onPressed: () => Navigator.pop(dialog),
-                child: const Text('Cancel'),
+                label: 'Cancel',
               ),
-              FilledButton(
+              AdaptiveButton(
+                primary: true,
                 onPressed: _saving
                     ? null
                     : () async {
@@ -436,7 +458,7 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
                           Navigator.pop(dialog);
                         }
                       },
-                child: const Text('Save mistake'),
+                label: 'Save mistake',
               ),
             ],
           ),
@@ -470,8 +492,8 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
     try {
       await _dialog<void>(
         builder: (dialog) => StatefulBuilder(
-          builder: (context, update) => AlertDialog(
-            title: const Text('Revisit mistake'),
+          builder: (context, update) => AdaptiveDialog(
+            title: 'Revisit mistake',
             content: SizedBox(
               width: 440,
               child: SingleChildScrollView(
@@ -481,13 +503,11 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
                   children: [
                     Text('Source: ${mistake.sourceLocator}'),
                     if (mistake.prompt != null) Text(mistake.prompt!),
-                    TextField(
+                    AdaptiveField(
                       key: const Key('revisit-answer'),
                       controller: answer,
                       maxLines: 3,
-                      decoration: const InputDecoration(
-                        labelText: 'Your fresh answer',
-                      ),
+                      label: 'Your fresh answer',
                     ),
                     if (revealed) ...[
                       Text('Correction: ${mistake.correctedAnswer}'),
@@ -500,22 +520,23 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
               ),
             ),
             actions: [
-              TextButton(
+              AdaptiveButton(
                 onPressed: () => Navigator.pop(dialog),
-                child: const Text('Cancel'),
+                label: 'Cancel',
               ),
               if (!revealed)
-                FilledButton(
+                AdaptiveButton(
+                  primary: true,
                   onPressed: () {
                     if (answer.text.trim().isNotEmpty) {
                       update(() => revealed = true);
                     }
                   },
-                  child: const Text('Reveal correction'),
+                  label: 'Reveal correction',
                 )
               else
                 for (final success in [false, true])
-                  TextButton(
+                  AdaptiveButton(
                     onPressed: _saving
                         ? null
                         : () async {
@@ -529,9 +550,9 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
                               Navigator.pop(dialog);
                             }
                           },
-                    child: Text(
-                      success ? 'I answered correctly' : 'Still needs practice',
-                    ),
+                    label: success
+                        ? 'I answered correctly'
+                        : 'Still needs practice',
                   ),
             ],
           ),
@@ -547,7 +568,13 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
     final journal = _journal;
     Widget body;
     if (widget.loading) {
-      body = const Center(child: CircularProgressIndicator());
+      body = Center(
+        child: ios
+            ? const cupertino.CupertinoActivityIndicator()
+            : windows
+            ? const fluent.ProgressRing()
+            : const material.CircularProgressIndicator(),
+      );
     } else if (widget.error != null) {
       body = Center(
         child: Text('Failed to load study journal: ${widget.error}'),
@@ -572,21 +599,20 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
           Wrap(
             spacing: 8,
             children: [
-              FilterChip(
-                label: const Text('All subjects'),
+              AdaptiveFilter(
+                label: 'All subjects',
                 selected: _subjectId == null,
-                onSelected: (_) => setState(() => _subjectId = null),
+                onPressed: () => setState(() => _subjectId = null),
               ),
               for (final s in journal.subjects)
-                FilterChip(
-                  label: Text(s.name),
+                AdaptiveFilter(
+                  label: s.name,
                   selected: _subjectId == s.id,
-                  onSelected: (_) => setState(() => _subjectId = s.id),
+                  onPressed: () => setState(() => _subjectId = s.id),
                 ),
             ],
           ),
-          SwitchListTile(
-            title: const Text('Show resolved'),
+          AdaptiveToggle(
             value: _resolved,
             onChanged: (value) => setState(() => _resolved = value),
           ),
@@ -595,85 +621,88 @@ class _MistakeLoopHomeState extends State<MistakeLoopHome> {
           if (entries.isEmpty)
             Text(_resolved ? 'No resolved mistakes' : 'No unresolved mistakes'),
           for (final m in entries)
-            Card(
-              child: ExpansionTile(
-                title: Text(m.sourceLocator),
-                subtitle: Text('Causes: ${m.causes.join(', ')}'),
-                childrenPadding: const EdgeInsets.all(12),
-                expandedCrossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (m.prompt != null) Text('Prompt: ${m.prompt}'),
-                  Text('Your wrong answer: ${m.wrongAnswer}'),
-                  if (m.resolved) Text('Correction: ${m.correctedAnswer}'),
-                  for (final event in m.events)
-                    Text(
-                      '${event.at.toLocal()} • ${event.kind.name}'
-                      '${event.answer == null ? '' : ' • ${event.answer}'}',
-                    ),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      TextButton(
-                        onPressed: _saving ? null : () => _edit(m),
-                        child: const Text('Edit'),
-                      ),
-                      if (m.resolved)
-                        TextButton(
-                          onPressed: _saving
-                              ? null
-                              : () => _replace(m, m.reopen(at: _after(m))),
-                          child: const Text('Reopen'),
-                        )
-                      else
-                        FilledButton(
-                          onPressed: _saving ? null : () => _revisit(m),
-                          child: const Text('Revisit'),
-                        ),
-                    ],
+            AdaptiveEntry(
+              title: m.sourceLocator,
+              subtitle: 'Causes: ${m.causes.join(', ')}',
+              children: [
+                if (m.prompt != null) Text('Prompt: ${m.prompt}'),
+                Text('Your wrong answer: ${m.wrongAnswer}'),
+                if (m.resolved) Text('Correction: ${m.correctedAnswer}'),
+                for (final event in m.events)
+                  Text(
+                    '${event.at.toLocal()} • ${event.kind.name}'
+                    '${event.answer == null ? '' : ' • ${event.answer}'}',
                   ),
-                ],
-              ),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    AdaptiveButton(
+                      onPressed: _saving ? null : () => _edit(m),
+                      label: 'Edit',
+                    ),
+                    if (m.resolved)
+                      AdaptiveButton(
+                        onPressed: _saving
+                            ? null
+                            : () => _replace(m, m.reopen(at: _after(m))),
+                        label: 'Reopen',
+                      )
+                    else
+                      AdaptiveButton(
+                        primary: true,
+                        onPressed: _saving ? null : () => _revisit(m),
+                        label: 'Revisit',
+                      ),
+                  ],
+                ),
+              ],
             ),
         ],
       );
     }
-    return Scaffold(
-      appBar: AppBar(title: const Text('Mistake Loop')),
-      body: body,
-      bottomNavigationBar: journal == null
-          ? null
-          : SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 12,
-                  children: [
-                    OutlinedButton(
-                      onPressed: _saving ? null : _newSubject,
-                      child: const Text('New subject'),
-                    ),
-                    FilledButton(
-                      onPressed: _saving || journal.subjects.isEmpty
-                          ? null
-                          : () => _edit(),
-                      child: const Text('Record mistake'),
-                    ),
-                    OutlinedButton(
-                      onPressed: _saving ? null : () => _export(csv: false),
-                      child: const Text('Export JSON backup'),
-                    ),
-                    OutlinedButton(
-                      onPressed: _saving ? null : () => _export(csv: true),
-                      child: const Text('Export CSV summary'),
-                    ),
-                    OutlinedButton(
-                      onPressed: _saving ? null : _import,
-                      child: const Text('Import JSON backup'),
-                    ),
-                  ],
+    return AdaptiveShell(
+      body: _message == null
+          ? body
+          : Column(
+              children: [
+                Semantics(
+                  liveRegion: true,
+                  child: Text(_message!, key: const Key('app-message')),
                 ),
-              ),
+                Expanded(child: body),
+              ],
+            ),
+      actions: journal == null
+          ? null
+          : Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                AdaptiveButton(
+                  onPressed: _saving ? null : _newSubject,
+                  label: 'New subject',
+                ),
+                AdaptiveButton(
+                  primary: true,
+                  onPressed: _saving || journal.subjects.isEmpty
+                      ? null
+                      : () => _edit(),
+                  label: 'Record mistake',
+                ),
+                AdaptiveButton(
+                  onPressed: _saving ? null : () => _export(csv: false),
+                  label: 'Export JSON backup',
+                ),
+                AdaptiveButton(
+                  onPressed: _saving ? null : () => _export(csv: true),
+                  label: 'Export CSV summary',
+                ),
+                AdaptiveButton(
+                  onPressed: _saving ? null : _import,
+                  label: 'Import JSON backup',
+                ),
+              ],
             ),
     );
   }
