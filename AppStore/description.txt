@@ -1,1 +1,11 @@
-Mistake Loop is planned as a private study journal for errors you want to understand, not hide. Record your wrong answer and correction, tag what caused the mistake, then revisit unresolved questions and check your progress. Planned for Windows, Android phones/tablets and iPhone/iPad with local storage and user-controlled backups. No account, ads, or cloud sync. This listing describes planned functionality; app is not yet released.
+Mistake Loop is a private, offline study mistake journal for errors you want to understand, not hide. Record your wrong answer, corrected answer, source locator, and error causes across subjects, then revisit unresolved questions in a dedicated self-marking queue.
+
+Built for Windows, Android phones and tablets, and iPhone and iPad with 100% local SQLite storage, versioned JSON backup and restore, and CSV export.
+
+Key Features:
+- Offline study journal: keep your own correction trail private on your device.
+- Focused revisit queue: write a fresh answer before revealing the correction; mark resolved only after a successful attempt, and reopen mistakes anytime.
+- Subject and cause organization: categorize errors by subject and tag specific causes (calculation error, sign mistake, misread question, etc.).
+- Platform-authentic interfaces: Cupertino styling on iOS/iPadOS, Material 3 on Android, and Fluent-style navigation on Windows desktop.
+- Privacy-first portability: export/import versioned JSON backups and export CSV summaries through your platform's native file picker.
+- Zero tracking: no account required, no ads, no telemetry, no AI grading claims, and no copied copyrighted question banks.

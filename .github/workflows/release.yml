@@ -1,0 +1,78 @@
+name: Windows release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vMAJOR.MINOR.PATCH tag to release
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+      - name: Validate release tag and checkout
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          $tag = $env:RELEASE_TAG
+          if ($tag -cnotmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw 'Release requires an existing vMAJOR.MINOR.PATCH tag' }
+          git show-ref --verify --quiet "refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) { throw "Tag does not exist: $tag" }
+          $tagCommit = git rev-parse "refs/tags/$tag`^{commit}"
+          $headCommit = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $tagCommit -ne $headCommit) { throw "Checkout does not match $tag" }
+          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.7'
+          channel: stable
+          cache: true
+      - shell: pwsh
+        run: |
+          flutter pub get --enforce-lockfile
+          if ($LASTEXITCODE -ne 0) { throw 'pub get failed' }
+          flutter build windows --release
+          if ($LASTEXITCODE -ne 0) { throw 'Windows release build failed' }
+          git diff --exit-code
+          if ($LASTEXITCODE -ne 0) { throw 'Build modified tracked files' }
+      - name: Package complete Windows runner
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression
+          $releaseDir = 'build/windows/x64/runner/Release'
+          if (!(Test-Path "$releaseDir/mistake_loop.exe") -or !(Test-Path "$releaseDir/data")) { throw 'Missing Windows runner or data directory' }
+          $zip = "mistake-loop-$env:RELEASE_TAG-windows-x64.zip"
+          Compress-Archive -Path "$releaseDir/*" -DestinationPath $zip -Force
+          $archive = [System.IO.Compression.ZipFile]::OpenRead((Join-Path $PWD $zip))
+          try {
+            $names = @($archive.Entries | ForEach-Object FullName)
+            if ($names -notcontains 'mistake_loop.exe' -or !(@($names | Where-Object { $_ -like 'data/*' }).Count)) { throw 'Incomplete Windows release archive' }
+          } finally { $archive.Dispose() }
+          if ((Get-Item $zip).Length -le 0) { throw 'Empty release archive' }
+          "RELEASE_ZIP=$zip" >> $env:GITHUB_ENV
+      - name: Attach portable zip to GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$env:RELEASE_TAG" --json tagName --jq .tagName 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create "$env:RELEASE_TAG" "$env:RELEASE_ZIP" --verify-tag --title "Mistake Loop $env:RELEASE_TAG" --generate-notes
+          } else {
+            gh release upload "$env:RELEASE_TAG" "$env:RELEASE_ZIP" --clobber
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
+          $release = gh release view "$env:RELEASE_TAG" --json assets | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Release inspection failed' }
+          $asset = @($release.assets | Where-Object { $_.name -eq $env:RELEASE_ZIP -and $_.size -gt 0 })
+          if ($asset.Count -ne 1 -or !$asset[0].url) { throw 'Release asset missing or empty' }
+          Write-Host "Release asset: $($asset[0].url) ($($asset[0].size) bytes)"
